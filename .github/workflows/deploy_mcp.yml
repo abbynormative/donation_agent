@@ -29,7 +29,7 @@ jobs:
       - name: Build and push image
         uses: docker/build-push-action@v4
         with:
-          context: donation-agent
+          context: .
           push: true
           tags: ${{ secrets.REGISTRY }}/donation-agent:${{ github.sha }}
 
@@ -42,4 +42,8 @@ jobs:
           echo "Replace this with your MCP CLI deploy commands."
           echo "Example:"
           echo "mcpctl login --host $MCP_HOST --token $MCP_CLI_TOKEN"
-          echo "mcpctl deploy --image $IMAGE --name donations-agent --env DATABASE_URL=${{ secrets.DATABASE_URL }}"
+          echo "mcpctl deploy --image $IMAGE --name donations-agent \"
+          echo "  --env DATABASE_URL=${{ secrets.DATABASE_URL }} \"
+          echo "  --env OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }} \"
+          echo "  --env S3_BUCKET=${{ secrets.S3_BUCKET }} \"
+          echo "  --env S3_PREFIX=${{ secrets.S3_PREFIX }}"

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Donation Insights</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header>
+    <h1>Donation Insights</h1>
+    <p class="subtitle">Ask a question about donations, or pick a ready-made report.</p>
+  </header>
+
+  <main>
+    <section class="ask">
+      <label for="question">Your question</label>
+      <textarea
+        id="question"
+        rows="3"
+        placeholder="e.g. What are the top 10 zip codes by total donation amount?"
+      ></textarea>
+      <div class="row">
+        <button id="ask-btn" type="button">Ask</button>
+        <label class="check">
+          <input type="checkbox" id="show-sql" />
+          Show the SQL the agent generated
+        </label>
+      </div>
+    </section>
+
+    <section class="tasks">
+      <h2>Ready-made reports</h2>
+      <p class="hint">Click any report to run it.</p>
+      <ul id="task-list" class="task-list">
+        <li class="muted">Loading reports…</li>
+      </ul>
+    </section>
+
+    <section class="results">
+      <div id="status" class="status" hidden></div>
+      <div id="sql-box" class="sql-box" hidden>
+        <h3>Generated SQL</h3>
+        <pre id="sql-text"></pre>
+      </div>
+      <div id="result-meta" class="result-meta" hidden></div>
+      <div id="table-wrap" class="table-wrap"></div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

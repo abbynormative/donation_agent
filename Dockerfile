@@ -5,4 +5,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 ENV OUTDIR=/data/outputs
 RUN mkdir -p /data/outputs
-ENTRYPOINT ["python", "run_queries.py"]
+EXPOSE 8080
+ENTRYPOINT ["uvicorn", "conversational_agent:app", "--host", "0.0.0.0", "--port", "8080"]

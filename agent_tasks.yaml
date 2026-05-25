@@ -1,0 +1,71 @@
+tasks:
+  - name: top_10_zips_by_donation_count
+    action: query
+    query: |
+      SELECT zip, COUNT(*) AS donation_count, SUM(amount) AS total_amount
+      FROM donations
+      GROUP BY zip
+      ORDER BY donation_count DESC
+      LIMIT 10;
+    output: top_10_zips_by_donation_count.csv
+    upload_s3: true
+
+  - name: top_10_states_by_donation_count
+    action: query
+    query: |
+      SELECT state, COUNT(*) AS donation_count, SUM(amount) AS total_amount
+      FROM donations
+      GROUP BY state
+      ORDER BY donation_count DESC
+      LIMIT 10;
+    output: top_10_states_by_donation_count.csv
+    upload_s3: true
+
+  - name: top_10_zips_by_total_amount
+    action: query
+    query: |
+      SELECT zip, SUM(amount) AS total_amount, COUNT(*) AS donation_count
+      FROM donations
+      GROUP BY zip
+      ORDER BY total_amount DESC
+      LIMIT 10;
+    output: top_10_zips_by_total_amount.csv
+    upload_s3: true
+
+  - name: top_10_states_by_total_amount
+    action: query
+    query: |
+      SELECT state, SUM(amount) AS total_amount, COUNT(*) AS donation_count
+      FROM donations
+      GROUP BY state
+      ORDER BY total_amount DESC
+      LIMIT 10;
+    output: top_10_states_by_total_amount.csv
+    upload_s3: true
+
+  - name: donation_summary_by_zip
+    action: query
+    query: |
+      SELECT zip, COUNT(*) AS donation_count, SUM(amount) AS total_amount, AVG(amount) AS avg_amount
+      FROM donations
+      GROUP BY zip
+      ORDER BY donation_count DESC;
+    output: donation_summary_by_zip.csv
+    upload_s3: false
+
+  - name: donation_summary_by_state
+    action: query
+    query: |
+      SELECT state, COUNT(*) AS donation_count, SUM(amount) AS total_amount, AVG(amount) AS avg_amount
+      FROM donations
+      GROUP BY state
+      ORDER BY donation_count DESC;
+    output: donation_summary_by_state.csv
+    upload_s3: false
+
+  - name: list_tables
+    action: list_tables
+
+  - name: describe_donations_table
+    action: describe_table
+    table: donations

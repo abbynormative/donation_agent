@@ -3,3 +3,7 @@ pandas
 python-dotenv
 psycopg2-binary
 boto3
+fastapi
+uvicorn[standard]
+openai>=1.0
+pyyaml
