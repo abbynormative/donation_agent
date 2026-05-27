@@ -1,7 +1,8 @@
+import json
 import os
 import re
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
@@ -49,6 +50,45 @@ FORBIDDEN_SQL_RE = re.compile(
     r"\b(" + "|".join(FORBIDDEN_SQL_TOKENS) + r")\b", re.IGNORECASE
 )
 
+CHART_INTENT_RE = re.compile(
+    r"\b(chart|graph|plot|trend|over\s*time|visuali[sz]e|bar|line|pie|donut|doughnut)\b",
+    re.IGNORECASE,
+)
+SKILLS_DIR = Path(__file__).parent / "skills"
+CHART_SKILL_FILE = SKILLS_DIR / "chart-maker.md"
+
+
+def has_chart_intent(question: str) -> bool:
+    return bool(question and CHART_INTENT_RE.search(question))
+
+
+def load_skill(name: str) -> str:
+    path = SKILLS_DIR / f"{name}.md"
+    if not path.is_file():
+        return ""
+    return path.read_text()
+
+
+def parse_agent_response(raw: str) -> Dict[str, Any]:
+    """Extract {sql, chart?} from a model response.
+
+    Accepts a bare SQL statement OR a JSON object (optionally fenced in ```json).
+    """
+    text = (raw or "").strip()
+    text = re.sub(r"^```(?:json|sql)?\s*", "", text)
+    text = re.sub(r"\s*```$", "", text)
+    text = text.strip()
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if match:
+        try:
+            obj = json.loads(match.group(0))
+            if isinstance(obj, dict) and isinstance(obj.get("sql"), str):
+                chart = obj.get("chart") if isinstance(obj.get("chart"), dict) else None
+                return {"sql": obj["sql"], "chart": chart}
+        except json.JSONDecodeError:
+            pass
+    return {"sql": text, "chart": None}
+
 _openai_client = None
 
 
@@ -79,6 +119,7 @@ class QueryRequest(BaseModel):
 class QueryResponse(BaseModel):
     sql: str
     records: List[dict]
+    chart: Optional[Dict[str, Any]] = None
     explanation: Optional[str] = None
     s3_url: Optional[str] = None
 
@@ -117,27 +158,58 @@ def sanitize_sql(sql: str) -> str:
     return stripped
 
 
-def generate_sql(question: str) -> str:
+def generate_sql(question: str) -> Dict[str, Any]:
+    """Return {sql, chart?} from the LLM. Loads chart-maker skill when chart intent is present."""
     client = get_openai_client()
     schema = inspect_schema()
-    prompt = (
-        "You are a SQL generation assistant. Generate a single valid SQL SELECT statement only, "
-        "with no explanation, that answers the user's request. Use only tables and columns available in the schema below. "
-        "Do not include any DML or DDL statements. Do not output anything other than the SQL statement.\n\n"
-        f"Schema:\n{schema}\n\n"
-        f"User request: {question}\n\n"
-        "Respond with SQL only."
+    wants_chart = has_chart_intent(question)
+
+    base_rules = (
+        "You are a SQL generation assistant. Use only tables and columns from the schema below. "
+        "Do not include any DML or DDL statements.\n\n"
+        "Guidance:\n"
+        "- If the question implies a trend, time series, or phrasing like 'over time', 'by month', 'by week', 'by day', "
+        "GROUP BY a date-truncated column and aggregate values. For SQLite, prefer strftime, e.g. "
+        "strftime('%Y-%m-%d', donated_at) for day, strftime('%Y-%m', donated_at) for month, "
+        "strftime('%Y-W%W', donated_at) for week. Order chronologically.\n"
+        "- Do not return more than ~1000 rows; add an appropriate LIMIT if needed.\n"
+        "- Alias aggregate columns with descriptive names (e.g. total_amount, donation_count, avg_amount).\n"
     )
+
+    if wants_chart:
+        skill = load_skill("chart-maker")
+        prompt = (
+            f"{base_rules}\n"
+            "The user is asking for a chart. Apply the chart-maker skill below and respond with a "
+            "single JSON object only — no prose, no code fences — matching the skill's schema "
+            "({sql: str, chart: {type, x, y, title}}).\n\n"
+            "----- BEGIN SKILL: chart-maker -----\n"
+            f"{skill}\n"
+            "----- END SKILL: chart-maker -----\n\n"
+            f"Schema:\n{schema}\n\n"
+            f"User request: {question}\n\n"
+            "Respond with the JSON object only."
+        )
+        system = "You are a SQL + chart-spec generator. Output a JSON object exactly matching the chart-maker skill schema."
+    else:
+        prompt = (
+            f"{base_rules}\n"
+            f"Schema:\n{schema}\n\n"
+            f"User request: {question}\n\n"
+            "Respond with SQL only."
+        )
+        system = "You are a SQL query generator for database analytics."
+
     response = client.chat.completions.create(
         model=OPENAI_MODEL,
         messages=[
-            {"role": "system", "content": "You are a SQL query generator for database analytics."},
+            {"role": "system", "content": system},
             {"role": "user", "content": prompt},
         ],
-        max_tokens=400,
+        max_tokens=800 if wants_chart else 400,
         temperature=0.0,
     )
-    return response.choices[0].message.content.strip()
+    return parse_agent_response(response.choices[0].message.content)
 
 
 def execute_query(sql: str) -> pd.DataFrame:
@@ -168,11 +240,34 @@ def health_check():
     return {"status": "ok", "service": "conversational_agent"}
 
 
+def validate_chart_spec(chart: Optional[Dict[str, Any]], columns: List[str]) -> Optional[Dict[str, Any]]:
+    """Drop the chart spec if it references columns the SQL didn't produce."""
+    if not chart:
+        return None
+    chart_type = chart.get("type")
+    if chart_type not in ("bar", "line", "pie"):
+        return None
+    x = chart.get("x")
+    y = chart.get("y")
+    if isinstance(y, str):
+        y = [y]
+    if not isinstance(y, list):
+        return None
+    if x not in columns or not all(col in columns for col in y):
+        return None
+    return {
+        "type": chart_type,
+        "x": x,
+        "y": y,
+        "title": chart.get("title") or "",
+    }
+
+
 @app.post("/query", response_model=QueryResponse)
 def query_endpoint(payload: QueryRequest):
     try:
-        raw_sql = generate_sql(payload.question)
-        sql = sanitize_sql(raw_sql)
+        parsed = generate_sql(payload.question)
+        sql = sanitize_sql(parsed["sql"])
         df = execute_query(sql)
         filename = f"conversational_{int(pd.Timestamp.now().timestamp())}.csv"
         os.makedirs(OUTDIR, exist_ok=True)
@@ -180,7 +275,14 @@ def query_endpoint(payload: QueryRequest):
         df.to_csv(path, index=False)
         s3_url = upload_csv(path, filename) if S3_BUCKET else None
         explanation = f"Generated SQL: {sql}" if payload.explain_sql else None
-        return QueryResponse(sql=sql, records=df.to_dict(orient="records"), explanation=explanation, s3_url=s3_url)
+        chart = validate_chart_spec(parsed.get("chart"), list(df.columns))
+        return QueryResponse(
+            sql=sql,
+            records=df.to_dict(orient="records"),
+            chart=chart,
+            explanation=explanation,
+            s3_url=s3_url,
+        )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 

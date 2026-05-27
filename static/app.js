@@ -2,12 +2,18 @@ const $ = (id) => document.getElementById(id);
 const askBtn = $("ask-btn");
 const questionEl = $("question");
 const showSqlEl = $("show-sql");
+const chartTypeEl = $("chart-type");
 const statusEl = $("status");
 const sqlBox = $("sql-box");
 const sqlText = $("sql-text");
 const resultMeta = $("result-meta");
 const tableWrap = $("table-wrap");
+const chartWrap = $("chart-wrap");
+const chartTitle = $("chart-title");
+const chartCanvas = $("chart-canvas");
 const taskList = $("task-list");
+
+let currentChart = null;
 
 function setStatus(kind, msg) {
   if (!msg) {
@@ -26,6 +32,105 @@ function clearResults() {
   resultMeta.hidden = true;
   resultMeta.textContent = "";
   tableWrap.innerHTML = "";
+  if (currentChart) {
+    currentChart.destroy();
+    currentChart = null;
+  }
+  chartWrap.hidden = true;
+}
+
+function detectChartIntent(q) {
+  if (!q) return null;
+  if (/\bbar\s*(chart|graph|plot)?\b/i.test(q)) return "bar";
+  if (/\bline\s*(chart|graph|plot)?\b|\btime\s*series\b|\btrend\b|\bover time\b/i.test(q)) return "line";
+  if (/\bpie\s*(chart|graph)?\b|\bdonut\b|\bdoughnut\b/i.test(q)) return "pie";
+  if (/\bchart\b|\bgraph\b|\bplot\b|\bvisuali[sz]e\b/i.test(q)) return "auto";
+  return null;
+}
+
+const CHART_PALETTE = [
+  "54, 162, 235", "255, 99, 132", "75, 192, 192", "255, 159, 64",
+  "153, 102, 255", "255, 205, 86", "201, 203, 207", "100, 181, 246",
+];
+const paletteColor = (i, alpha) => `rgba(${CHART_PALETTE[i % CHART_PALETTE.length]}, ${alpha})`;
+
+const looksLikeDate = (v) => {
+  if (v == null) return false;
+  if (typeof v !== "string" && typeof v !== "number") return false;
+  const s = String(v);
+  if (!/\d{4}/.test(s)) return false;
+  const d = Date.parse(s);
+  return !Number.isNaN(d);
+};
+
+function renderChart(records, type, spec) {
+  if (currentChart) { currentChart.destroy(); currentChart = null; }
+  chartWrap.hidden = true;
+  chartTitle.textContent = "";
+  if (!records || records.length === 0 || type === "none") return;
+  if (typeof Chart === "undefined") return;
+
+  const cols = Object.keys(records[0]);
+  const isNum = (v) => typeof v === "number";
+  const numCols = cols.filter((c) => records.some((r) => isNum(r[c])) && records.every((r) => r[c] === null || isNum(r[c])));
+  const labelCols = cols.filter((c) => !numCols.includes(c));
+
+  const specX = spec && cols.includes(spec.x) ? spec.x : null;
+  const specY = spec && Array.isArray(spec.y) ? spec.y.filter((c) => numCols.includes(c)) : null;
+
+  const labelCol = specX || labelCols[0] || cols[0];
+  const valueCols = (specY && specY.length) ? specY : numCols;
+  if (!labelCol || valueCols.length === 0) return;
+
+  const labels = records.map((r) => String(r[labelCol]));
+
+  let resolved = type;
+  if (resolved === "auto") {
+    resolved = looksLikeDate(records[0][labelCol]) ? "line" : "bar";
+  }
+
+  let datasets;
+  if (resolved === "pie") {
+    const valueCol = valueCols[0];
+    datasets = [{
+      label: valueCol,
+      data: records.map((r) => r[valueCol]),
+      backgroundColor: labels.map((_, i) => paletteColor(i, 0.75)),
+      borderColor: "#fff",
+      borderWidth: 1,
+    }];
+  } else {
+    const dense = resolved === "line" && records.length > 50;
+    datasets = valueCols.map((c, i) => ({
+      label: c,
+      data: records.map((r) => r[c]),
+      backgroundColor: paletteColor(i, resolved === "line" ? 0.25 : 0.65),
+      borderColor: paletteColor(i, 1),
+      borderWidth: 2,
+      fill: resolved === "line" ? false : undefined,
+      tension: resolved === "line" ? 0.25 : undefined,
+      pointRadius: dense ? 0 : 3,
+      pointHoverRadius: dense ? 3 : 5,
+    }));
+  }
+
+  if (spec && spec.title) chartTitle.textContent = spec.title;
+  chartWrap.hidden = false;
+  currentChart = new Chart(chartCanvas.getContext("2d"), {
+    type: resolved,
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: resolved === "pie" || datasets.length > 1 },
+      },
+      scales: resolved === "pie" ? {} : {
+        x: { title: { display: true, text: labelCol } },
+        y: { beginAtZero: true },
+      },
+    },
+  });
 }
 
 function renderTable(records) {
@@ -113,6 +218,9 @@ async function ask() {
     }
     showMeta(data.records, data.s3_url ? `Saved to ${data.s3_url}` : null);
     renderTable(data.records);
+    const intent = detectChartIntent(q);
+    const chartType = (data.chart && data.chart.type) || intent || chartTypeEl.value;
+    renderChart(data.records, chartType, data.chart);
   } catch (err) {
     setStatus("error", `Network error: ${err.message}`);
   } finally {
@@ -135,9 +243,11 @@ async function runTask(name) {
       return;
     }
     setStatus("ok", `Report '${name}' finished.`);
+    let rows = null;
     if (Array.isArray(data.records)) {
       showMeta(data.records, data.output_path ? `Saved to ${data.output_path}` : null);
       renderTable(data.records);
+      rows = data.records;
     } else {
       const result = Array.isArray(data.results) ? data.results[0] : data.results;
       if (typeof result === "string") {
@@ -146,7 +256,12 @@ async function runTask(name) {
       } else if (Array.isArray(result)) {
         showMeta(result);
         renderTable(result);
+        rows = result;
       }
+    }
+    if (rows) {
+      const t = chartTypeEl.value === "auto" ? "bar" : chartTypeEl.value;
+      renderChart(rows, t);
     }
   } catch (err) {
     setStatus("error", `Network error: ${err.message}`);
@@ -184,4 +299,15 @@ questionEl.addEventListener("keydown", (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key === "Enter") ask();
 });
 
-loadTasks();
+loadTasks().then(() => {
+  const params = new URLSearchParams(window.location.search);
+  const initialChart = params.get("chart");
+  if (initialChart) chartTypeEl.value = initialChart;
+  const initialTask = params.get("task");
+  if (initialTask) runTask(initialTask);
+  const initialQ = params.get("q");
+  if (initialQ) {
+    questionEl.value = initialQ;
+    ask();
+  }
+});

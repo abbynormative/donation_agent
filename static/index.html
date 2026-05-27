@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Donation Insights</title>
   <link rel="stylesheet" href="/static/styles.css" />
+  <script src="/static/vendor/chart.umd.min.js"></script>
 </head>
 <body>
   <header>
@@ -26,6 +27,16 @@
           <input type="checkbox" id="show-sql" />
           Show the SQL the agent generated
         </label>
+        <label class="check">
+          Chart:
+          <select id="chart-type">
+            <option value="auto">Auto</option>
+            <option value="bar">Bar</option>
+            <option value="line">Line</option>
+            <option value="pie">Pie</option>
+            <option value="none">None</option>
+          </select>
+        </label>
       </div>
     </section>
 
@@ -44,6 +55,10 @@
         <pre id="sql-text"></pre>
       </div>
       <div id="result-meta" class="result-meta" hidden></div>
+      <div id="chart-wrap" class="chart-wrap" hidden>
+        <div id="chart-title" class="chart-title"></div>
+        <div class="chart-canvas-wrap"><canvas id="chart-canvas"></canvas></div>
+      </div>
       <div id="table-wrap" class="table-wrap"></div>
     </section>
   </main>
