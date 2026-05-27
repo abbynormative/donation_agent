@@ -43,8 +43,10 @@ function renderTable(records) {
   const isNum = (v) => typeof v === "number";
   const numCols = new Set(cols.filter((c) => records.every((r) => r[c] === null || isNum(r[c]))));
   const QUANTITY_RE = /count|amount|total|sum|avg|average|mean|pct|percent|ratio/i;
-  const CURRENCY_RE = /amount|revenue|cost|price|usd|dollars?/i;
-  const isCurrency = (col) => numCols.has(col) && CURRENCY_RE.test(col);
+  const CURRENCY_RE = /amount|revenue|cost|price|usd|dollars?|donation|contribution|payment|gift|fee|balance/i;
+  const COUNT_RE = /(^|_)(count|n|num|qty|number)(_|$)|_count$|_n$/i;
+  const isCount = (col) => COUNT_RE.test(col);
+  const isCurrency = (col) => numCols.has(col) && CURRENCY_RE.test(col) && !isCount(col);
   const isQuantity = (col) => numCols.has(col) && QUANTITY_RE.test(col);
 
   const currencyFmt = new Intl.NumberFormat(undefined, {

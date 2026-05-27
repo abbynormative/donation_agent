@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy import create_engine, inspect, text
@@ -16,6 +16,7 @@ load_dotenv()
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///donations.db")
 OUTDIR = os.getenv("OUTDIR", "outputs")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 S3_BUCKET = os.getenv("S3_BUCKET")
 S3_PREFIX = os.getenv("S3_PREFIX", "")
@@ -33,7 +34,14 @@ def index():
     index_file = STATIC_DIR / "index.html"
     if not index_file.is_file():
         raise HTTPException(status_code=404, detail="UI not found")
-    return FileResponse(str(index_file))
+    css = STATIC_DIR / "styles.css"
+    js = STATIC_DIR / "app.js"
+    css_v = int(css.stat().st_mtime) if css.is_file() else 0
+    js_v = int(js.stat().st_mtime) if js.is_file() else 0
+    html = index_file.read_text()
+    html = html.replace("/static/styles.css", f"/static/styles.css?v={css_v}")
+    html = html.replace("/static/app.js", f"/static/app.js?v={js_v}")
+    return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
 
 SQL_WHITELIST = re.compile(r"^\s*SELECT\s+.*", re.IGNORECASE | re.DOTALL)
 FORBIDDEN_SQL_TOKENS = ("DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "CREATE", "TRUNCATE")
@@ -48,13 +56,18 @@ def get_openai_client():
     global _openai_client
     if _openai_client is not None:
         return _openai_client
-    if not OPENAI_API_KEY:
-        raise RuntimeError("OPENAI_API_KEY is required for the conversational agent")
+    if not OPENAI_API_KEY and not OPENAI_BASE_URL:
+        raise RuntimeError(
+            "OPENAI_API_KEY is required (or set OPENAI_BASE_URL to an OpenAI-compatible server)"
+        )
     try:
         from openai import OpenAI
     except ImportError as exc:
         raise RuntimeError("Missing openai package: install openai>=1.0") from exc
-    _openai_client = OpenAI(api_key=OPENAI_API_KEY)
+    kwargs = {"api_key": OPENAI_API_KEY or "sk-not-needed"}
+    if OPENAI_BASE_URL:
+        kwargs["base_url"] = OPENAI_BASE_URL
+    _openai_client = OpenAI(**kwargs)
     return _openai_client
 
 
