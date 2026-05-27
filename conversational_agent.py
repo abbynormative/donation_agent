@@ -159,46 +159,42 @@ def sanitize_sql(sql: str) -> str:
 
 
 def generate_sql(question: str) -> Dict[str, Any]:
-    """Return {sql, chart?} from the LLM. Loads chart-maker skill when chart intent is present."""
+    """Return {sql, chart?} from the LLM. Always loads the sql-author skill; loads chart-maker when chart intent is present."""
     client = get_openai_client()
     schema = inspect_schema()
     wants_chart = has_chart_intent(question)
+    sql_skill = load_skill("sql-author")
 
-    base_rules = (
-        "You are a SQL generation assistant. Use only tables and columns from the schema below. "
-        "Do not include any DML or DDL statements.\n\n"
-        "Guidance:\n"
-        "- If the question implies a trend, time series, or phrasing like 'over time', 'by month', 'by week', 'by day', "
-        "GROUP BY a date-truncated column and aggregate values. For SQLite, prefer strftime, e.g. "
-        "strftime('%Y-%m-%d', donated_at) for day, strftime('%Y-%m', donated_at) for month, "
-        "strftime('%Y-W%W', donated_at) for week. Order chronologically.\n"
-        "- Do not return more than ~1000 rows; add an appropriate LIMIT if needed.\n"
-        "- Alias aggregate columns with descriptive names (e.g. total_amount, donation_count, avg_amount).\n"
+    sql_skill_block = (
+        "----- BEGIN SKILL: sql-author -----\n"
+        f"{sql_skill}\n"
+        "----- END SKILL: sql-author -----\n"
     )
 
     if wants_chart:
-        skill = load_skill("chart-maker")
+        chart_skill = load_skill("chart-maker")
         prompt = (
-            f"{base_rules}\n"
-            "The user is asking for a chart. Apply the chart-maker skill below and respond with a "
-            "single JSON object only — no prose, no code fences — matching the skill's schema "
-            "({sql: str, chart: {type, x, y, title}}).\n\n"
+            "Two skills apply to this request. Read both, then respond.\n\n"
+            f"{sql_skill_block}\n"
             "----- BEGIN SKILL: chart-maker -----\n"
-            f"{skill}\n"
+            f"{chart_skill}\n"
             "----- END SKILL: chart-maker -----\n\n"
+            "Combine them: author the SQL per sql-author (with the self-check), and wrap it in the "
+            "JSON envelope per chart-maker. Respond with a single JSON object only — no prose, no code fences.\n\n"
             f"Schema:\n{schema}\n\n"
             f"User request: {question}\n\n"
             "Respond with the JSON object only."
         )
-        system = "You are a SQL + chart-spec generator. Output a JSON object exactly matching the chart-maker skill schema."
+        system = "You are a SQL + chart-spec generator. Apply the sql-author and chart-maker skills, and emit a JSON object matching the chart-maker schema."
     else:
         prompt = (
-            f"{base_rules}\n"
+            "Apply this skill to the user's request, then respond.\n\n"
+            f"{sql_skill_block}\n\n"
             f"Schema:\n{schema}\n\n"
             f"User request: {question}\n\n"
             "Respond with SQL only."
         )
-        system = "You are a SQL query generator for database analytics."
+        system = "You are a SQL query generator for database analytics. Apply the sql-author skill."
 
     response = client.chat.completions.create(
         model=OPENAI_MODEL,
@@ -206,7 +202,7 @@ def generate_sql(question: str) -> Dict[str, Any]:
             {"role": "system", "content": system},
             {"role": "user", "content": prompt},
         ],
-        max_tokens=800 if wants_chart else 400,
+        max_tokens=1000 if wants_chart else 600,
         temperature=0.0,
     )
     return parse_agent_response(response.choices[0].message.content)
