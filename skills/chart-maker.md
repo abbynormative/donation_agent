@@ -8,6 +8,9 @@ Guide the SQL-generation agent when a user wants a chart. The agent must:
 
 This skill is loaded into the model's prompt whenever the user's question contains chart intent (e.g. "chart", "graph", "plot", "trend", "over time", "bar", "line", "pie", "visualize").
 
+## Ambiguous requests
+If `sql-author`'s "When to ask clarifying questions" guidance applies to this request, skip this skill entirely — emit only the `clarifying_questions` JSON object, with no `chart` field and no SQL.
+
 ## Supported chart types
 The UI renders charts with Chart.js. Three types are supported:
 - `bar` — comparing values across categories (states, zip codes, segments).

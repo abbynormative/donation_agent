@@ -176,6 +176,10 @@ th { background: #f1f4f8; font-weight: 600; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 tr:hover td { background: #fafbfd; }
 
+.clarify-box { padding: 4px 0 2px; }
+.clarify-list { margin: 0 0 10px; padding-left: 22px; }
+.clarify-list li { margin-bottom: 6px; }
+
 .download-link {
   color: var(--accent);
   font-weight: 600;

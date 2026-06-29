@@ -54,6 +54,24 @@ const CHART_PALETTE = [
 ];
 const paletteColor = (i, alpha) => `rgba(${CHART_PALETTE[i % CHART_PALETTE.length]}, ${alpha})`;
 
+// Shared column-type heuristics (by column name) used by both the table
+// renderer and the chart renderer, so a column like "monetary" or
+// "total_amount" is treated as currency consistently everywhere.
+const CURRENCY_RE = /amount|revenue|cost|price|usd|dollars?|donation|contribution|payment|gift|fee|balance|monetary/i;
+const COUNT_RE = /(^|_)(count|n|num|qty|number)(_|$)|_count$|_n$/i;
+const PERCENT_RE = /(^|_)pct(_|$)|percent/i;
+const QUANTITY_RE = /count|amount|total|sum|avg|average|mean|monetary|pct|percent|ratio/i;
+const isCountCol = (col) => COUNT_RE.test(col);
+const isPercentCol = (col) => PERCENT_RE.test(col);
+const isCurrencyCol = (col) => CURRENCY_RE.test(col) && !isCountCol(col) && !isPercentCol(col);
+const isQuantityCol = (col) => QUANTITY_RE.test(col);
+const currencyFmt = new Intl.NumberFormat(undefined, {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
 const looksLikeDate = (v) => {
   if (v == null) return false;
   if (typeof v !== "string" && typeof v !== "number") return false;
@@ -89,6 +107,17 @@ function renderChart(records, type, spec) {
     resolved = looksLikeDate(records[0][labelCol]) ? "line" : "bar";
   }
 
+  // Classify the metrics being charted so a "count" column and an "amount"
+  // column land on separate y-axes, and amounts get a $ sign on hover.
+  const currencyCols = valueCols.filter(isCurrencyCol);
+  const otherCols = valueCols.filter((c) => !isCurrencyCol(c));
+  const useDualAxis = resolved !== "pie" && currencyCols.length > 0 && otherCols.length > 0;
+  const allCurrency = !useDualAxis && currencyCols.length === valueCols.length;
+  const fmtValue = (col, v) => {
+    if (v === null || v === undefined) return "";
+    return isCurrencyCol(col) ? currencyFmt.format(v) : Number(v).toLocaleString();
+  };
+
   let datasets;
   if (resolved === "pie") {
     const valueCol = valueCols[0];
@@ -111,7 +140,28 @@ function renderChart(records, type, spec) {
       tension: resolved === "line" ? 0.25 : undefined,
       pointRadius: dense ? 0 : 3,
       pointHoverRadius: dense ? 3 : 5,
+      yAxisID: useDualAxis && isCurrencyCol(c) ? "y1" : "y",
     }));
+  }
+
+  let scales = {};
+  if (resolved !== "pie") {
+    scales.x = { title: { display: true, text: labelCol } };
+    scales.y = {
+      beginAtZero: true,
+      position: "left",
+      ...(useDualAxis ? { title: { display: true, text: otherCols.length === 1 ? otherCols[0] : "Count" } } : {}),
+      ...(allCurrency ? { ticks: { callback: (v) => currencyFmt.format(v) } } : {}),
+    };
+    if (useDualAxis) {
+      scales.y1 = {
+        beginAtZero: true,
+        position: "right",
+        grid: { drawOnChartArea: false },
+        title: { display: true, text: currencyCols.length === 1 ? currencyCols[0] : "Amount ($)" },
+        ticks: { callback: (v) => currencyFmt.format(v) },
+      };
+    }
   }
 
   if (spec && spec.title) chartTitle.textContent = spec.title;
@@ -124,11 +174,16 @@ function renderChart(records, type, spec) {
       maintainAspectRatio: false,
       plugins: {
         legend: { display: resolved === "pie" || datasets.length > 1 },
+        tooltip: {
+          callbacks: {
+            label: (ctx) =>
+              resolved === "pie"
+                ? `${ctx.label}: ${fmtValue(valueCols[0], ctx.parsed)}`
+                : `${ctx.dataset.label}: ${fmtValue(ctx.dataset.label, ctx.parsed.y)}`,
+          },
+        },
       },
-      scales: resolved === "pie" ? {} : {
-        x: { title: { display: true, text: labelCol } },
-        y: { beginAtZero: true },
-      },
+      scales,
     },
   });
 }
@@ -145,21 +200,10 @@ function tableHtml(records) {
   const cols = Object.keys(records[0]);
   const isNum = (v) => typeof v === "number";
   const numCols = new Set(cols.filter((c) => records.every((r) => r[c] === null || isNum(r[c]))));
-  const QUANTITY_RE = /count|amount|total|sum|avg|average|mean|monetary|pct|percent|ratio/i;
-  const CURRENCY_RE = /amount|revenue|cost|price|usd|dollars?|donation|contribution|payment|gift|fee|balance|monetary/i;
-  const COUNT_RE = /(^|_)(count|n|num|qty|number)(_|$)|_count$|_n$/i;
-  const PERCENT_RE = /(^|_)pct(_|$)|percent/i;
-  const isCount = (col) => COUNT_RE.test(col);
-  const isPercent = (col) => numCols.has(col) && PERCENT_RE.test(col);
-  const isCurrency = (col) => numCols.has(col) && CURRENCY_RE.test(col) && !isCount(col) && !isPercent(col);
-  const isQuantity = (col) => numCols.has(col) && QUANTITY_RE.test(col);
-
-  const currencyFmt = new Intl.NumberFormat(undefined, {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
+  const isCount = (col) => isCountCol(col);
+  const isPercent = (col) => numCols.has(col) && isPercentCol(col);
+  const isCurrency = (col) => numCols.has(col) && isCurrencyCol(col);
+  const isQuantity = (col) => numCols.has(col) && isQuantityCol(col);
 
   const fmt = (v, col) => {
     if (v === null || v === undefined) return "";
@@ -191,6 +235,25 @@ function renderTable(records) {
   tableWrap.innerHTML = tableHtml(records);
 }
 
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function renderClarifyingQuestions(questions) {
+  const items = questions.map((q) => `<li>${escapeHtml(q)}</li>`).join("");
+  tableWrap.innerHTML = `
+    <div class="clarify-box">
+      <p class="hint">Your question could mean a few different things. Mind answering:</p>
+      <ol class="clarify-list">${items}</ol>
+      <p class="hint">Add those details to your question above and ask again.</p>
+    </div>`;
+}
+
 function showMeta(records, extra) {
   const parts = [`${records.length} row${records.length === 1 ? "" : "s"}`];
   if (extra) parts.push(extra);
@@ -216,6 +279,11 @@ async function ask() {
     const data = await res.json();
     if (!res.ok) {
       setStatus("error", data.detail || "Something went wrong.");
+      return;
+    }
+    if (Array.isArray(data.clarifying_questions) && data.clarifying_questions.length) {
+      setStatus("ok", "I need a bit more detail before I can run that.");
+      renderClarifyingQuestions(data.clarifying_questions);
       return;
     }
     setStatus("ok", "Done.");

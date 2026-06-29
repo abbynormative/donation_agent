@@ -86,6 +86,9 @@ Example response:
 - `records` — query results as JSON rows
 - `explanation` — optional SQL returned when `explain_sql` is true
 - `s3_url` — optional CSV upload location
+- `clarifying_questions` — set instead of `sql`/`records` when the question is too ambiguous or general for the schema (up to 3 questions). The web UI shows these and lets the user refine their question; `sql` is `null` and no query runs in this case.
+
+Charts (`chart` field, when chart intent is detected): if the result mixes a count-style column (e.g. `donation_count`) with a dollar-style column (e.g. `total_amount`), the UI renders them on separate left/right y-axes, and hovering any dollar-style bar/line/slice shows the value formatted with a `$` sign.
 
 ## Run existing task definitions
 

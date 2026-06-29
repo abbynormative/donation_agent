@@ -15,6 +15,26 @@ The target dialect is **SQLite**. Use SQLite-specific syntax where it differs fr
 4. **No SQL comments** (`--` or `/* */`) in the output.
 5. **No prose** around the SQL. If you also need to emit a chart spec, follow the `chart-maker` skill's JSON envelope; otherwise emit bare SQL.
 6. **Use only columns and tables that appear in the provided schema.** If something the user asked for isn't in the schema, pick the closest available column rather than invent one.
+7. **If the request is too ambiguous or general to map to one well-defined query, do not guess.** Follow "When to ask clarifying questions" below instead of emitting SQL.
+
+## When to ask clarifying questions instead of guessing
+
+Most requests are answerable as-is — prefer answering with a reasonable default over asking. Only ask when the ambiguity would meaningfully change the result, for example:
+- The request names no clear metric, entity, or time frame ("show me the data", "how are we doing", "tell me about donors").
+- A key term has multiple reasonable readings that would produce different SQL ("top donors" — by total given, by number of gifts, or by most recent? "recent" — last 7 days, 30 days, this year?).
+- The request implies a concept that isn't in the schema and there's no reasonably close substitute, so you'd otherwise have to invent a column.
+
+When you decide to ask, **do not emit SQL or a chart spec.** Respond with only this JSON object, nothing else:
+
+```json
+{"clarifying_questions": ["<question 1>", "<question 2>", "<question 3>"]}
+```
+
+Rules for the questions:
+- 1 to 3 questions, ranked most-important first. Never more than 3.
+- Each one must be short, specific, and answerable in a sentence — phrase it so the answer tells you exactly which column/filter/grouping to use (e.g. "Do you mean top donors by total amount given, or by number of donations?" not "Can you clarify your question?").
+- Only ask about things that actually change the query. Don't ask about details the schema can't support either way.
+- If you can resolve the ambiguity yourself with a sensible default, do that instead of asking.
 
 ## Author the query (chain of thought)
 Work through these steps internally before writing the final SQL:

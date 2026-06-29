@@ -70,7 +70,7 @@ def load_skill(name: str) -> str:
 
 
 def parse_agent_response(raw: str) -> Dict[str, Any]:
-    """Extract {sql, chart?} from a model response.
+    """Extract {sql, chart?} or {clarifying_questions} from a model response.
 
     Accepts a bare SQL statement OR a JSON object (optionally fenced in ```json).
     """
@@ -82,12 +82,18 @@ def parse_agent_response(raw: str) -> Dict[str, Any]:
     if match:
         try:
             obj = json.loads(match.group(0))
-            if isinstance(obj, dict) and isinstance(obj.get("sql"), str):
-                chart = obj.get("chart") if isinstance(obj.get("chart"), dict) else None
-                return {"sql": obj["sql"], "chart": chart}
+            if isinstance(obj, dict):
+                questions = obj.get("clarifying_questions")
+                if isinstance(questions, list):
+                    cleaned = [str(q).strip() for q in questions if str(q).strip()][:3]
+                    if cleaned:
+                        return {"sql": None, "chart": None, "clarifying_questions": cleaned}
+                if isinstance(obj.get("sql"), str):
+                    chart = obj.get("chart") if isinstance(obj.get("chart"), dict) else None
+                    return {"sql": obj["sql"], "chart": chart, "clarifying_questions": None}
         except json.JSONDecodeError:
             pass
-    return {"sql": text, "chart": None}
+    return {"sql": text, "chart": None, "clarifying_questions": None}
 
 _openai_client = None
 
@@ -117,11 +123,12 @@ class QueryRequest(BaseModel):
 
 
 class QueryResponse(BaseModel):
-    sql: str
-    records: List[dict]
+    sql: Optional[str] = None
+    records: List[dict] = []
     chart: Optional[Dict[str, Any]] = None
     explanation: Optional[str] = None
     s3_url: Optional[str] = None
+    clarifying_questions: Optional[List[str]] = None
 
 
 class TaskRequest(BaseModel):
@@ -181,20 +188,24 @@ def generate_sql(question: str) -> Dict[str, Any]:
             "----- END SKILL: chart-maker -----\n\n"
             "Combine them: author the SQL per sql-author (with the self-check), and wrap it in the "
             "JSON envelope per chart-maker. Respond with a single JSON object only — no prose, no code fences.\n\n"
+            "If the request is too ambiguous or general for this schema, skip SQL and the chart spec entirely "
+            "and respond with the clarifying_questions JSON object described in sql-author instead (max 3 questions).\n\n"
             f"Schema:\n{schema}\n\n"
             f"User request: {question}\n\n"
-            "Respond with the JSON object only."
+            "Respond with a single JSON object only."
         )
-        system = "You are a SQL + chart-spec generator. Apply the sql-author and chart-maker skills, and emit a JSON object matching the chart-maker schema."
+        system = "You are a SQL + chart-spec generator. Apply the sql-author and chart-maker skills, and emit a JSON object matching the chart-maker schema (or the clarifying_questions schema if the request is too ambiguous)."
     else:
         prompt = (
             "Apply this skill to the user's request, then respond.\n\n"
             f"{sql_skill_block}\n\n"
             f"Schema:\n{schema}\n\n"
             f"User request: {question}\n\n"
-            "Respond with SQL only."
+            "If the request is clear enough to answer, respond with SQL only. If it's too ambiguous or "
+            "general for this schema, respond instead with the clarifying_questions JSON object described "
+            "in the skill (max 3 questions) — nothing else."
         )
-        system = "You are a SQL query generator for database analytics. Apply the sql-author skill."
+        system = "You are a SQL query generator for database analytics. Apply the sql-author skill, including its clarifying-questions guidance."
 
     response = client.chat.completions.create(
         model=OPENAI_MODEL,
@@ -263,6 +274,8 @@ def validate_chart_spec(chart: Optional[Dict[str, Any]], columns: List[str]) -> 
 def query_endpoint(payload: QueryRequest):
     try:
         parsed = generate_sql(payload.question)
+        if parsed.get("clarifying_questions"):
+            return QueryResponse(clarifying_questions=parsed["clarifying_questions"])
         sql = sanitize_sql(parsed["sql"])
         df = execute_query(sql)
         filename = f"conversational_{int(pd.Timestamp.now().timestamp())}.csv"
