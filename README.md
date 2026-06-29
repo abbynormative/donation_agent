@@ -167,16 +167,21 @@ docker run --rm -p 8080:8080 \
   donation-agent:latest
 ```
 
-Deploy with MCP:
+## Deploy to Render (free)
 
-- Set secrets: `REGISTRY`, `REGISTRY_USERNAME`, `REGISTRY_PASSWORD`, `DATABASE_URL`, `OPENAI_API_KEY`, `MCP_CLI_TOKEN`, `MCP_HOST`, plus AWS secrets if using S3.
-- The workflow in `.github/workflows/deploy_mcp.yml` builds and pushes the image and contains a placeholder MCP deploy command.
-- Replace the placeholder with your actual MCP CLI command, for example:
+This repo includes a `render.yaml` Blueprint for [Render](https://render.com)'s free web service tier (no credit card required).
 
-```bash
-mcpctl login --host $MCP_HOST --token $MCP_CLI_TOKEN
-mcpctl deploy --image $IMAGE --name donations-agent --env DATABASE_URL=$DATABASE_URL --env OPENAI_API_KEY=$OPENAI_API_KEY
-```
+1. Push this repo to GitHub.
+2. Create a [Hugging Face](https://huggingface.co/settings/tokens) access token (no credit card required). By default `render.yaml` points the `/query` endpoint at Hugging Face's Inference Providers router, which serves the same `Qwen/Qwen3-Coder-30B-A3B-Instruct` model referenced in the local `.env` via the Featherless AI provider.
+3. In the Render dashboard: **New +** → **Blueprint** → connect this GitHub repo. Render reads `render.yaml` automatically and provisions the service.
+4. When prompted for `OPENAI_API_KEY`, paste your Hugging Face token. Click **Apply**.
+5. Wait for the build to finish, then open the assigned `*.onrender.com` URL.
+
+Notes on the free tier:
+
+- The filesystem is ephemeral, so a fresh seeded `donations` table (1000 example rows) is baked into the Docker image at build time via `seed_donations.py` — the app works immediately with no external database to provision. CSV exports written to `OUTDIR` won't survive a restart; set `S3_BUCKET` if you need them to persist.
+- The free instance spins down after 15 minutes of inactivity and takes ~30–60s to wake up on the next request.
+- To use a different model/provider (real OpenAI, Groq, a self-hosted endpoint, etc.), change `OPENAI_BASE_URL` and `OPENAI_MODEL` in `render.yaml` or directly in the Render dashboard.
 
 ## How the conversational agent works
 
@@ -191,6 +196,6 @@ mcpctl deploy --image $IMAGE --name donations-agent --env DATABASE_URL=$DATABASE
 ## Notes
 
 - If your dataset does not have a `state` column, create a `zip_state` lookup table and update the SQL accordingly.
-- For persistent results on MCP, use a mounted volume or S3 bucket rather than local disk.
+- For persistent results on a host with an ephemeral filesystem (e.g. Render's free tier), use S3 (`S3_BUCKET`) rather than local disk.
 - Avoid using the conversational endpoint without `OPENAI_API_KEY` configured.
 

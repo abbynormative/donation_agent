@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: donation-agent
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        value: sqlite:///donations.db
+      - key: OUTDIR
+        value: /data/outputs
+      # Hugging Face's Inference Providers router serves the same
+      # qwen3-coder-30b-a3b model referenced in the local .env, via an
+      # OpenAI-compatible API (routed through the Featherless AI provider,
+      # the only one currently serving this checkpoint). Swap these two if
+      # you'd rather point at OpenAI itself, Groq, DeepInfra, or your own
+      # self-hosted model.
+      - key: OPENAI_BASE_URL
+        value: https://router.huggingface.co/v1
+      - key: OPENAI_MODEL
+        value: Qwen/Qwen3-Coder-30B-A3B-Instruct:featherless-ai
+      # Paste a Hugging Face access token here (entered manually in the
+      # Render dashboard during Blueprint setup — never stored in this file
+      # or committed to the repo).
+      - key: OPENAI_API_KEY
+        sync: false
