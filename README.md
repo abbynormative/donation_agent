@@ -7,6 +7,7 @@ This project contains a conversational MCP-ready agent for donation analytics. I
 - `conversational_agent.py` — a FastAPI service that accepts natural-language questions and returns query results, and also serves a simple web UI.
 - `static/` — the browser UI (`index.html`, `styles.css`, `app.js`) for non-technical users.
 - `mcp_agent.py` — a flexible command-line agent for direct SQL, CSV loading, and task execution.
+- `donor_clustering.py` — RFM-based donor segmentation and feature-importance ranking, served via `/cluster-analysis`.
 - `agent_tasks.yaml` — built-in common analytics tasks such as top zip/state donation summaries.
 - `seed_donations.py` — generates an example `donations` table for local development.
 - `run_queries.py` — legacy batch query runner.
@@ -54,6 +55,7 @@ Open `http://localhost:8080/` in a browser. The UI provides:
 - A text box for plain-English questions, with an optional "Show the SQL" toggle.
 - Buttons for every report defined in `agent_tasks.yaml` (loaded from `/tasks`).
 - A results table rendered from the JSON response. CSV exports are still written to `OUTDIR` (or S3) by the backend.
+- A **Donor segmentation** panel that clusters donors and shows the factors that matter most (see [Donor segmentation](#donor-segmentation-cluster-analysis) below).
 
 The UI is plain HTML/CSS/JS served from `static/` — no build step required.
 
@@ -171,17 +173,58 @@ docker run --rm -p 8080:8080 \
 
 This repo includes a `render.yaml` Blueprint for [Render](https://render.com)'s free web service tier (no credit card required).
 
+### The model: Qwen3 Coder via Hugging Face
+
+The `/query` endpoint needs an LLM to turn plain-English questions into SQL. By default, `render.yaml` points it at Hugging Face's [Inference Providers](https://huggingface.co/docs/inference-providers) router (`https://router.huggingface.co/v1`), which serves `Qwen/Qwen3-Coder-30B-A3B-Instruct:featherless-ai` — the same Qwen3 Coder model referenced in the local `.env`, routed through Featherless AI (currently the only provider hosting this exact checkpoint on Hugging Face's router). Usage draws from your Hugging Face account's inference credits; creating a token requires no credit card.
+
+To use a different model or provider instead (real OpenAI, Groq, DeepInfra, a self-hosted endpoint), change `OPENAI_BASE_URL` and `OPENAI_MODEL` in `render.yaml` or directly in the Render dashboard's environment variables.
+
+### Deploy steps
+
 1. Push this repo to GitHub.
-2. Create a [Hugging Face](https://huggingface.co/settings/tokens) access token (no credit card required). By default `render.yaml` points the `/query` endpoint at Hugging Face's Inference Providers router, which serves the same `Qwen/Qwen3-Coder-30B-A3B-Instruct` model referenced in the local `.env` via the Featherless AI provider.
+2. Get a Hugging Face access token: [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) → **New token** → any role (read-only is enough) → copy it. No credit card required.
 3. In the Render dashboard: **New +** → **Blueprint** → connect this GitHub repo. Render reads `render.yaml` automatically and provisions the service.
 4. When prompted for `OPENAI_API_KEY`, paste your Hugging Face token. Click **Apply**.
-5. Wait for the build to finish, then open the assigned `*.onrender.com` URL.
+5. Wait for the build to finish (a few minutes — it installs dependencies and bakes the seeded database into the image).
+6. Find your live URL: Render first shows the **Blueprint** page with a list of sync events, not the service itself. Click through to the **donation-agent** service (the link under "Create web service") — that page has the live `*.onrender.com` URL plus its own Events/Logs tabs.
+
+If you skipped step 2, or need to change the token later: open the `donation-agent` service → **Environment** tab → edit `OPENAI_API_KEY` → save (this triggers a redeploy).
 
 Notes on the free tier:
 
 - The filesystem is ephemeral, so a fresh seeded `donations` table (1000 example rows) is baked into the Docker image at build time via `seed_donations.py` — the app works immediately with no external database to provision. CSV exports written to `OUTDIR` won't survive a restart; set `S3_BUCKET` if you need them to persist.
-- The free instance spins down after 15 minutes of inactivity and takes ~30–60s to wake up on the next request.
-- To use a different model/provider (real OpenAI, Groq, a self-hosted endpoint, etc.), change `OPENAI_BASE_URL` and `OPENAI_MODEL` in `render.yaml` or directly in the Render dashboard.
+- The free instance spins down after 15 minutes of inactivity and takes ~30–60s to wake up on the next request — the first request after idling will feel slow; that's expected, not a bug.
+- Code changes (new features, dependency bumps) need a new commit pushed to GitHub for Render to rebuild. Env var changes alone don't need a push — edit them directly in the dashboard.
+
+## Donor segmentation (cluster analysis)
+
+`GET /cluster-analysis?n_clusters=4` groups donors into RFM (Recency / Frequency / Monetary) segments and reports which factors most distinguish the top ("likely donor") segment from the rest. Implementation lives in `donor_clustering.py`:
+
+1. Aggregates raw donation rows into one row per donor (by `donor_name`).
+2. Standardizes recency/frequency/monetary and runs k-means (`n_clusters`, default 4).
+3. Labels segments by an engagement score — `Champions` / `Loyal` / `Occasional` / `Lapsed` for the default 4 clusters.
+4. Trains a small Random Forest to classify "in the top segment vs. not" using recency, frequency, monetary, average gift size, and state, then reports `feature_importances_` as the ranked list of most important factors.
+
+Response includes `segments` (per-segment profile), `feature_importance` (ranked factors), `top_donors` (preview of the top segment), and `likely_donor_segment`. The web UI has a "Donor segmentation" panel that calls this endpoint.
+
+### Using it in the web UI
+
+1. Open the app and scroll to the **Donor segmentation** panel.
+2. Pick how many segments to create from the dropdown (3–6; default 4).
+3. Click **Run cluster analysis**.
+4. Read the results:
+   - **Segments** — a table of each segment (e.g. Champions, Loyal, Occasional, Lapsed) with donor count, average recency/frequency/giving, and % of total dollars raised.
+   - **Most important factors** — a ranked bar list showing which attributes (total given, average gift size, donation frequency, state, recency) most distinguish the top segment from everyone else.
+   - **Top donors** — the highest-value donors within the top ("likely donor") segment.
+5. Re-run with a different segment count to see coarser or finer groupings.
+
+### Using it via the API
+
+```bash
+curl "http://localhost:8080/cluster-analysis?n_clusters=4"
+```
+
+**Caveat:** the `donations` table has no donor ID, only `donor_name`. The seeded demo data draws names from a small pool (10 first × 10 last), so a "donor" bucket can represent more than one real person who happens to share a name — fine for demonstrating the pipeline, but a real deployment should group by a stable `donor_id` column instead.
 
 ## How the conversational agent works
 
@@ -192,6 +235,7 @@ Notes on the free tier:
 - Saves query results to CSV in `OUTDIR` and uploads to S3 if configured.
 - `/run-task`: runs a named task from `agent_tasks.yaml`.
 - `/tasks`: lists available named tasks.
+- `/cluster-analysis`: segments donors via RFM clustering and ranks the factors that most define the top segment.
 
 ## Notes
 

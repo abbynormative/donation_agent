@@ -324,6 +324,19 @@ def run_task_endpoint(payload: TaskRequest):
     return {"results": serializable_results, "records": rows, "output_path": output_path}
 
 
+@app.get("/cluster-analysis")
+def cluster_analysis_endpoint(n_clusters: int = 4):
+    try:
+        from donor_clustering import run_cluster_analysis
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Unable to import cluster analysis: {exc}")
+
+    try:
+        return run_cluster_analysis(engine, n_clusters=n_clusters)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @app.get("/tasks")
 def list_task_names():
     try:

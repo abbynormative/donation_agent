@@ -61,6 +61,34 @@
       </div>
       <div id="table-wrap" class="table-wrap"></div>
     </section>
+
+    <section class="cluster">
+      <h2>Donor segmentation</h2>
+      <p class="hint">Group donors by recency/frequency/giving and see which factors most define your most valuable segment.</p>
+      <div class="row">
+        <button id="cluster-btn" type="button">Run cluster analysis</button>
+        <label class="check">
+          Segments:
+          <select id="cluster-count">
+            <option value="3">3</option>
+            <option value="4" selected>4</option>
+            <option value="5">5</option>
+            <option value="6">6</option>
+          </select>
+        </label>
+      </div>
+      <div id="cluster-status" class="status" hidden></div>
+      <div id="cluster-output" hidden>
+        <div id="cluster-summary" class="result-meta"></div>
+        <h3 class="cluster-subhead">Segments</h3>
+        <div id="cluster-segments-table" class="table-wrap"></div>
+        <h3 class="cluster-subhead">Most important factors</h3>
+        <div id="cluster-factors" class="factor-list"></div>
+        <h3 class="cluster-subhead">Top donors in the likely-donor segment</h3>
+        <div id="cluster-top-donors-table" class="table-wrap"></div>
+        <p id="cluster-note" class="hint"></p>
+      </div>
+    </section>
   </main>
 
   <script src="/static/app.js"></script>

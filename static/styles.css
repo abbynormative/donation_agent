@@ -175,3 +175,38 @@ th, td {
 th { background: #f1f4f8; font-weight: 600; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 tr:hover td { background: #fafbfd; }
+
+.cluster-subhead {
+  margin: 18px 0 8px;
+  font-size: 14px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.cluster-subhead:first-of-type { margin-top: 10px; }
+
+.factor-list { display: flex; flex-direction: column; gap: 8px; }
+.factor-row {
+  display: grid;
+  grid-template-columns: 110px 1fr 48px;
+  align-items: center;
+  gap: 10px;
+}
+.factor-label { font-size: 13px; text-transform: capitalize; color: var(--text); }
+.factor-bar {
+  background: #eef2f7;
+  border-radius: 4px;
+  height: 14px;
+  overflow: hidden;
+}
+.factor-fill {
+  background: var(--accent);
+  height: 100%;
+  border-radius: 4px;
+}
+.factor-pct {
+  font-size: 13px;
+  text-align: right;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}

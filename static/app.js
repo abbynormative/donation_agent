@@ -133,16 +133,14 @@ function renderChart(records, type, spec) {
   });
 }
 
-function renderTable(records) {
+function tableHtml(records) {
   if (!records || records.length === 0) {
-    tableWrap.innerHTML = "<p class='hint'>No rows returned.</p>";
-    return;
+    return "<p class='hint'>No rows returned.</p>";
   }
   const allObjects = records.every((r) => r && typeof r === "object" && !Array.isArray(r));
   if (!allObjects) {
     const items = records.map((r) => `<li>${String(r)}</li>`).join("");
-    tableWrap.innerHTML = `<ul>${items}</ul>`;
-    return;
+    return `<ul>${items}</ul>`;
   }
   const cols = Object.keys(records[0]);
   const isNum = (v) => typeof v === "number";
@@ -181,7 +179,11 @@ function renderTable(records) {
         "</tr>"
     )
     .join("");
-  tableWrap.innerHTML = `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+  return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+}
+
+function renderTable(records) {
+  tableWrap.innerHTML = tableHtml(records);
 }
 
 function showMeta(records, extra) {
@@ -267,6 +269,73 @@ async function runTask(name) {
     setStatus("error", `Network error: ${err.message}`);
   }
 }
+
+const clusterBtn = $("cluster-btn");
+const clusterCountEl = $("cluster-count");
+const clusterStatusEl = $("cluster-status");
+const clusterOutputEl = $("cluster-output");
+const clusterSummaryEl = $("cluster-summary");
+const clusterSegmentsTableEl = $("cluster-segments-table");
+const clusterFactorsEl = $("cluster-factors");
+const clusterTopDonorsTableEl = $("cluster-top-donors-table");
+const clusterNoteEl = $("cluster-note");
+
+function setClusterStatus(kind, msg) {
+  if (!msg) {
+    clusterStatusEl.hidden = true;
+    clusterStatusEl.textContent = "";
+    return;
+  }
+  clusterStatusEl.hidden = false;
+  clusterStatusEl.className = `status ${kind}`;
+  clusterStatusEl.textContent = msg;
+}
+
+function renderFactors(rows) {
+  if (!rows || rows.length === 0) {
+    clusterFactorsEl.innerHTML = "<p class='hint'>No factors to show.</p>";
+    return;
+  }
+  const max = Math.max(...rows.map((r) => r.importance_pct), 1);
+  clusterFactorsEl.innerHTML = rows
+    .map(
+      (r) => `
+      <div class="factor-row">
+        <div class="factor-label">${r.feature.replace(/_/g, " ")}</div>
+        <div class="factor-bar"><div class="factor-fill" style="width:${(r.importance_pct / max) * 100}%"></div></div>
+        <div class="factor-pct">${r.importance_pct}%</div>
+      </div>`
+    )
+    .join("");
+}
+
+async function runClusterAnalysis() {
+  clusterOutputEl.hidden = true;
+  setClusterStatus("loading", "Clustering donors…");
+  clusterBtn.disabled = true;
+  try {
+    const n = clusterCountEl.value;
+    const res = await fetch(`/cluster-analysis?n_clusters=${encodeURIComponent(n)}`);
+    const data = await res.json();
+    if (!res.ok) {
+      setClusterStatus("error", data.detail || "Something went wrong.");
+      return;
+    }
+    setClusterStatus("ok", "Done.");
+    clusterSummaryEl.textContent = `${data.donor_count} donors · likely-donor segment: ${data.likely_donor_segment}`;
+    clusterSegmentsTableEl.innerHTML = tableHtml(data.segments);
+    renderFactors(data.feature_importance);
+    clusterTopDonorsTableEl.innerHTML = tableHtml(data.top_donors);
+    clusterNoteEl.textContent = data.note || "";
+    clusterOutputEl.hidden = false;
+  } catch (err) {
+    setClusterStatus("error", `Network error: ${err.message}`);
+  } finally {
+    clusterBtn.disabled = false;
+  }
+}
+
+clusterBtn.addEventListener("click", runClusterAnalysis);
 
 async function loadTasks() {
   try {

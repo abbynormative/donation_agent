@@ -7,3 +7,4 @@ fastapi
 uvicorn[standard]
 openai>=1.0
 pyyaml
+scikit-learn
