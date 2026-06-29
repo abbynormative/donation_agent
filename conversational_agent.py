@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy import create_engine, inspect, text
@@ -335,6 +335,25 @@ def cluster_analysis_endpoint(n_clusters: int = 4):
         return run_cluster_analysis(engine, n_clusters=n_clusters)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/cluster-analysis/download")
+def download_segment_endpoint(segment: str, n_clusters: int = 4):
+    try:
+        from donor_clustering import get_segment_csv
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Unable to import cluster analysis: {exc}")
+
+    try:
+        result = get_segment_csv(engine, n_clusters=n_clusters, segment=segment)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    return Response(
+        content=result["csv"],
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{result["filename"]}"'},
+    )
 
 
 @app.get("/tasks")

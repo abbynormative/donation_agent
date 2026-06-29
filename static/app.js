@@ -145,11 +145,13 @@ function tableHtml(records) {
   const cols = Object.keys(records[0]);
   const isNum = (v) => typeof v === "number";
   const numCols = new Set(cols.filter((c) => records.every((r) => r[c] === null || isNum(r[c]))));
-  const QUANTITY_RE = /count|amount|total|sum|avg|average|mean|pct|percent|ratio/i;
-  const CURRENCY_RE = /amount|revenue|cost|price|usd|dollars?|donation|contribution|payment|gift|fee|balance/i;
+  const QUANTITY_RE = /count|amount|total|sum|avg|average|mean|monetary|pct|percent|ratio/i;
+  const CURRENCY_RE = /amount|revenue|cost|price|usd|dollars?|donation|contribution|payment|gift|fee|balance|monetary/i;
   const COUNT_RE = /(^|_)(count|n|num|qty|number)(_|$)|_count$|_n$/i;
+  const PERCENT_RE = /(^|_)pct(_|$)|percent/i;
   const isCount = (col) => COUNT_RE.test(col);
-  const isCurrency = (col) => numCols.has(col) && CURRENCY_RE.test(col) && !isCount(col);
+  const isPercent = (col) => numCols.has(col) && PERCENT_RE.test(col);
+  const isCurrency = (col) => numCols.has(col) && CURRENCY_RE.test(col) && !isCount(col) && !isPercent(col);
   const isQuantity = (col) => numCols.has(col) && QUANTITY_RE.test(col);
 
   const currencyFmt = new Intl.NumberFormat(undefined, {
@@ -161,6 +163,9 @@ function tableHtml(records) {
 
   const fmt = (v, col) => {
     if (v === null || v === undefined) return "";
+    if (typeof v === "number" && isPercent(col)) {
+      return `${v.toLocaleString(undefined, { maximumFractionDigits: 1 })}%`;
+    }
     if (typeof v === "number" && isCurrency(col)) {
       return currencyFmt.format(v);
     }
@@ -309,6 +314,42 @@ function renderFactors(rows) {
     .join("");
 }
 
+function renderSegmentsTable(segments, nClusters) {
+  if (!segments || segments.length === 0) {
+    clusterSegmentsTableEl.innerHTML = "<p class='hint'>No segments to show.</p>";
+    return;
+  }
+  const pctFmt = (v) => `${Number(v).toLocaleString(undefined, { maximumFractionDigits: 1 })}%`;
+  const usdFmt = (v) =>
+    Number(v).toLocaleString(undefined, { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const head = [
+    "segment", "donor count", "% of donors", "avg recency (days)", "avg frequency", "avg monetary", "% of total amount", "",
+  ]
+    .map((c) => `<th class="${c ? "num" : ""}">${c}</th>`)
+    .join("");
+
+  const body = segments
+    .map((s) => {
+      const url = `/cluster-analysis/download?segment=${encodeURIComponent(s.segment)}&n_clusters=${encodeURIComponent(nClusters)}`;
+      return (
+        "<tr>" +
+        `<td>${s.segment}</td>` +
+        `<td class="num">${s.donor_count.toLocaleString()}</td>` +
+        `<td class="num">${pctFmt(s.pct_of_donors)}</td>` +
+        `<td class="num">${s.avg_recency_days}</td>` +
+        `<td class="num">${s.avg_frequency}</td>` +
+        `<td class="num">${usdFmt(s.avg_monetary)}</td>` +
+        `<td class="num">${pctFmt(s.pct_of_total_amount)}</td>` +
+        `<td><a class="download-link" href="${url}" download>Download CSV</a></td>` +
+        "</tr>"
+      );
+    })
+    .join("");
+
+  clusterSegmentsTableEl.innerHTML = `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+}
+
 async function runClusterAnalysis() {
   clusterOutputEl.hidden = true;
   setClusterStatus("loading", "Clustering donors…");
@@ -323,7 +364,7 @@ async function runClusterAnalysis() {
     }
     setClusterStatus("ok", "Done.");
     clusterSummaryEl.textContent = `${data.donor_count} donors · likely-donor segment: ${data.likely_donor_segment}`;
-    clusterSegmentsTableEl.innerHTML = tableHtml(data.segments);
+    renderSegmentsTable(data.segments, data.n_clusters || n);
     renderFactors(data.feature_importance);
     clusterTopDonorsTableEl.innerHTML = tableHtml(data.top_donors);
     clusterNoteEl.textContent = data.note || "";

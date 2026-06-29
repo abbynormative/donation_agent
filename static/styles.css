@@ -176,6 +176,15 @@ th { background: #f1f4f8; font-weight: 600; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 tr:hover td { background: #fafbfd; }
 
+.download-link {
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 13px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.download-link:hover { text-decoration: underline; }
+
 .cluster-subhead {
   margin: 18px 0 8px;
   font-size: 14px;

@@ -83,7 +83,14 @@ def _rank_and_label_clusters(profile: pd.DataFrame):
     return labels, ranked
 
 
-def run_cluster_analysis(engine, n_clusters: int = 4) -> Dict[str, Any]:
+def _build_clustered_donors(engine, n_clusters: int = 4):
+    """Run the RFM clustering pipeline and return (donors_df, profile, labels, ranked, top_cluster).
+
+    `donors_df` has one row per donor with `cluster`, `segment`, and
+    `is_likely_donor` columns added. Shared by `run_cluster_analysis` and
+    `get_segment_csv` so both see identical segment assignments for the same
+    `n_clusters` (KMeans is seeded with a fixed random_state).
+    """
     donors = build_donor_features(engine)
     n_clusters = max(2, min(int(n_clusters), len(donors)))
 
@@ -98,6 +105,12 @@ def run_cluster_analysis(engine, n_clusters: int = 4) -> Dict[str, Any]:
     donors["segment"] = donors["cluster"].map(labels)
     top_cluster = ranked[0]
     donors["is_likely_donor"] = (donors["cluster"] == top_cluster).astype(int)
+    return donors, profile, labels, ranked, top_cluster
+
+
+def run_cluster_analysis(engine, n_clusters: int = 4) -> Dict[str, Any]:
+    donors, profile, labels, ranked, top_cluster = _build_clustered_donors(engine, n_clusters)
+    n_clusters = len(ranked)
 
     # Feature importance: which factors best separate the top segment from
     # the rest? Train a small Random Forest classifier and read off its
@@ -158,6 +171,40 @@ def run_cluster_analysis(engine, n_clusters: int = 4) -> Dict[str, Any]:
         "top_donors": top_donors,
         "note": DONOR_NAME_CAVEAT,
     }
+
+
+SEGMENT_DOWNLOAD_COLUMNS = [
+    "donor_name",
+    "segment",
+    "frequency",
+    "monetary",
+    "avg_amount",
+    "recency_days",
+    "state",
+    "zip",
+]
+
+
+def get_segment_csv(engine, n_clusters: int, segment: str) -> Dict[str, str]:
+    """Return {csv, filename} for every donor in the requested segment.
+
+    `segment` is matched case-insensitively against the labels produced by
+    `_rank_and_label_clusters` (e.g. "Champions", "Loyal", "Occasional",
+    "Lapsed", or "Segment N" for n_clusters > 4).
+    """
+    donors, *_ = _build_clustered_donors(engine, n_clusters)
+    available = sorted(donors["segment"].unique().tolist())
+    match = next((s for s in available if s.lower() == segment.lower()), None)
+    if match is None:
+        raise ValueError(f"Unknown segment '{segment}'. Available segments: {', '.join(available)}")
+
+    subset = (
+        donors[donors["segment"] == match]
+        .sort_values("monetary", ascending=False)[SEGMENT_DOWNLOAD_COLUMNS]
+        .round(2)
+    )
+    filename = f"donor_segment_{match.lower().replace(' ', '_')}.csv"
+    return {"csv": subset.to_csv(index=False), "filename": filename}
 
 
 if __name__ == "__main__":
