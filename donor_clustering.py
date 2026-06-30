@@ -242,6 +242,22 @@ def get_segment_csv(engine, n_clusters: int, segment: str) -> Dict[str, str]:
     return {"csv": subset.to_csv(index=False), "filename": filename}
 
 
+def get_likely_donors_csv(engine, n_clusters: int = 4) -> Dict[str, str]:
+    """Return {csv, filename} for every donor with is_likely_donor == 1.
+
+    Uses the same business rule as run_cluster_analysis: frequency_90d >=
+    LIKELY_DONOR_MIN_GIFTS_90D (3+ gifts in last 90 days), regardless of
+    which k-means segment a donor was assigned to.
+    """
+    donors, *_ = _build_clustered_donors(engine, n_clusters)
+    subset = (
+        donors[donors["is_likely_donor"] == 1]
+        .sort_values("monetary", ascending=False)[SEGMENT_DOWNLOAD_COLUMNS]
+        .round(2)
+    )
+    return {"csv": subset.to_csv(index=False), "filename": "likely_donors.csv"}
+
+
 if __name__ == "__main__":
     from sqlalchemy import create_engine
 

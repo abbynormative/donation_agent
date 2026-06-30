@@ -350,6 +350,25 @@ def cluster_analysis_endpoint(n_clusters: int = 4):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@app.get("/cluster-analysis/download-likely")
+def download_likely_donors_endpoint(n_clusters: int = 4):
+    try:
+        from donor_clustering import get_likely_donors_csv
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Unable to import cluster analysis: {exc}")
+
+    try:
+        result = get_likely_donors_csv(engine, n_clusters=n_clusters)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    return Response(
+        content=result["csv"],
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{result["filename"]}"'},
+    )
+
+
 @app.get("/cluster-analysis/download")
 def download_segment_endpoint(segment: str, n_clusters: int = 4):
     try:

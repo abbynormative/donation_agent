@@ -431,7 +431,10 @@ async function runClusterAnalysis() {
       return;
     }
     setClusterStatus("ok", "Done.");
-    clusterSummaryEl.textContent = `${data.donor_count} donors · ${data.likely_donor_count ?? 0} likely donors (3+ gifts in last 90 days)`;
+    const likelyUrl = `/cluster-analysis/download-likely?n_clusters=${encodeURIComponent(n)}`;
+    clusterSummaryEl.innerHTML =
+      `${data.donor_count} donors · ${data.likely_donor_count ?? 0} likely donors (3+ gifts in last 90 days) ` +
+      `<a class="download-link" href="${likelyUrl}" download>Download likely donors CSV</a>`;
     renderSegmentsTable(data.segments, data.n_clusters || n);
     renderFactors(data.feature_importance);
     clusterTopDonorsTableEl.innerHTML = tableHtml(data.top_donors);
