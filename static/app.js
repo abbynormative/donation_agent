@@ -431,7 +431,7 @@ async function runClusterAnalysis() {
       return;
     }
     setClusterStatus("ok", "Done.");
-    clusterSummaryEl.textContent = `${data.donor_count} donors · likely-donor segment: ${data.likely_donor_segment}`;
+    clusterSummaryEl.textContent = `${data.donor_count} donors · ${data.likely_donor_count ?? 0} likely donors (3+ gifts in last 90 days)`;
     renderSegmentsTable(data.segments, data.n_clusters || n);
     renderFactors(data.feature_importance);
     clusterTopDonorsTableEl.innerHTML = tableHtml(data.top_donors);

@@ -160,9 +160,16 @@ button:disabled { background: #a3b1c2; cursor: not-allowed; }
   margin-left: 4px;
 }
 
-.table-wrap { overflow-x: auto; }
-table {
+.table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch; /* smooth scroll on iOS */
   width: 100%;
+}
+table {
+  /* min-width (not width) lets the table exceed the container when content
+     is wide, triggering horizontal scroll in .table-wrap on narrow screens. */
+  min-width: 100%;
+  width: auto;
   border-collapse: collapse;
   font-size: 14px;
 }
@@ -222,4 +229,55 @@ tr:hover td { background: #fafbfd; }
   text-align: right;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+
+/* ── Mobile ─────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  main {
+    padding: 12px 10px 32px;
+    gap: 12px;
+  }
+
+  section {
+    padding: 14px 12px;
+  }
+
+  header {
+    padding: 18px 16px 8px;
+  }
+
+  /* Tables: compact cells, natural width so overflow-x kicks in */
+  th, td {
+    padding: 6px 8px;
+    font-size: 12px;
+  }
+
+  /* Charts: shorter canvas on small screens */
+  .chart-canvas-wrap {
+    height: 220px;
+  }
+
+  /* Factor importance bars: narrower label column */
+  .factor-row {
+    grid-template-columns: 72px 1fr 38px;
+    gap: 6px;
+  }
+
+  .factor-label {
+    font-size: 11px;
+  }
+
+  .factor-pct {
+    font-size: 11px;
+  }
+
+  /* Cluster count selector row */
+  .row {
+    gap: 8px;
+  }
+
+  /* Download links in table fit on narrow screens */
+  .download-link {
+    font-size: 11px;
+  }
 }

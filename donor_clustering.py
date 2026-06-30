@@ -25,6 +25,11 @@ RFM_COLUMNS = ["recency_days", "frequency", "monetary"]
 PROFILE_FEATURE_COLUMNS = ["recency_days", "frequency", "monetary", "avg_amount"]
 SEGMENT_LABELS_BY_RANK = ["Champions", "Loyal", "Occasional", "Lapsed"]
 
+# Business-rule thresholds — see skills/cluster-analysis.md for rationale.
+# Change these constants to adjust without touching any other logic.
+LIKELY_DONOR_MIN_GIFTS_90D = 3   # 3+ donations in last 90 days → "likely donor" / Champions
+LAPSED_RECENCY_DAYS = 180         # 180+ days since last gift (≈ 6 months) → Lapsed
+
 DONOR_NAME_CAVEAT = (
     "Donors are grouped by donor_name, the only identifier in this schema. "
     "In the seeded demo data, names are drawn from a small pool, so a "
@@ -66,6 +71,17 @@ def build_donor_features(engine) -> pd.DataFrame:
         .reset_index()
     )
     grouped["recency_days"] = (snapshot_date - grouped["last_donated_at"]).dt.days
+
+    # 90-day gift count: primary signal for the Champions / likely-donor rule.
+    cutoff_90d = snapshot_date - pd.Timedelta(days=90)
+    freq_90d = (
+        df[df["donated_at"] >= cutoff_90d]
+        .groupby("donor_name")
+        .agg(frequency_90d=("amount", "count"))
+        .reset_index()
+    )
+    grouped = grouped.merge(freq_90d, on="donor_name", how="left")
+    grouped["frequency_90d"] = grouped["frequency_90d"].fillna(0).astype(int)
     return grouped
 
 
@@ -104,7 +120,15 @@ def _build_clustered_donors(engine, n_clusters: int = 4):
     labels, ranked = _rank_and_label_clusters(profile)
     donors["segment"] = donors["cluster"].map(labels)
     top_cluster = ranked[0]
-    donors["is_likely_donor"] = (donors["cluster"] == top_cluster).astype(int)
+
+    # Apply business-rule overrides on top of k-means labels.
+    # Lapsed rule: any donor inactive for 6+ months overrides their cluster label.
+    donors.loc[donors["recency_days"] >= LAPSED_RECENCY_DAYS, "segment"] = "Lapsed"
+    # Likely-donor rule: 3+ gifts in last 90 days (mutually exclusive with Lapsed).
+    donors["is_likely_donor"] = (
+        donors["frequency_90d"] >= LIKELY_DONOR_MIN_GIFTS_90D
+    ).astype(int)
+
     return donors, profile, labels, ranked, top_cluster
 
 
@@ -137,27 +161,36 @@ def run_cluster_analysis(engine, n_clusters: int = 4) -> Dict[str, Any]:
     total_amount = float(donors["monetary"].sum())
     total_donors = len(donors)
 
+    # Build segment stats from *final* labels (after business-rule overrides),
+    # preserving the k-means rank order so Champions comes first, Lapsed last.
+    segment_order = list(dict.fromkeys(labels[cid] for cid in ranked))
     segments = []
-    for cluster_id in ranked:
-        mask = donors["cluster"] == cluster_id
+    for seg_name in segment_order:
+        mask = donors["segment"] == seg_name
+        if not mask.any():
+            continue
         seg_donors = donors[mask]
-        row = profile.loc[cluster_id]
         segments.append(
             {
-                "segment": labels[cluster_id],
+                "segment": seg_name,
                 "donor_count": int(mask.sum()),
                 "pct_of_donors": round(100 * mask.sum() / total_donors, 1),
-                "avg_recency_days": round(float(row["recency_days"]), 1),
-                "avg_frequency": round(float(row["frequency"]), 1),
-                "avg_monetary": round(float(row["monetary"]), 2),
+                "avg_recency_days": round(float(seg_donors["recency_days"].mean()), 1),
+                "avg_frequency": round(float(seg_donors["frequency"].mean()), 1),
+                "avg_monetary": round(float(seg_donors["monetary"].mean()), 2),
                 "pct_of_total_amount": round(100 * seg_donors["monetary"].sum() / total_amount, 1),
             }
         )
 
+    # Top donors: filtered by the Champions business rule (3+ gifts in 90 days),
+    # not by raw k-means cluster, so the list matches the is_likely_donor flag.
+    likely_donors_df = donors[donors["is_likely_donor"] == 1].sort_values(
+        "monetary", ascending=False
+    )
     top_donors = (
-        donors[donors["cluster"] == top_cluster]
-        .sort_values("monetary", ascending=False)
-        .head(20)[["donor_name", "segment", "frequency", "monetary", "avg_amount", "recency_days", "state"]]
+        likely_donors_df.head(20)[
+            ["donor_name", "segment", "frequency", "frequency_90d", "monetary", "avg_amount", "recency_days", "state"]
+        ]
         .round(2)
         .to_dict(orient="records")
     )
@@ -166,6 +199,7 @@ def run_cluster_analysis(engine, n_clusters: int = 4) -> Dict[str, Any]:
         "donor_count": total_donors,
         "n_clusters": n_clusters,
         "likely_donor_segment": labels[top_cluster],
+        "likely_donor_count": int(donors["is_likely_donor"].sum()),
         "segments": segments,
         "feature_importance": feature_importance,
         "top_donors": top_donors,
@@ -177,6 +211,7 @@ SEGMENT_DOWNLOAD_COLUMNS = [
     "donor_name",
     "segment",
     "frequency",
+    "frequency_90d",
     "monetary",
     "avg_amount",
     "recency_days",
