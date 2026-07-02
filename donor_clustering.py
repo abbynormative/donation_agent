@@ -231,7 +231,7 @@ def get_segment_csv(engine, n_clusters: int, segment: str) -> Dict[str, str]:
     available = sorted(donors["segment"].unique().tolist())
     match = next((s for s in available if s.lower() == segment.lower()), None)
     if match is None:
-        raise ValueError(f"Unknown segment '{segment}'. Available segments: {', '.join(available)}")
+        raise ValueError(f"Unknown segment. Available segments: {', '.join(available)}")
 
     subset = (
         donors[donors["segment"] == match]

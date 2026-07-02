@@ -63,6 +63,23 @@ tasks:
     output: donation_summary_by_state.csv
     upload_s3: false
 
+  - name: list_donors_last_6_months
+    action: query
+    query: |
+      SELECT
+        donor_name,
+        COUNT(*) AS donation_count,
+        SUM(amount) AS total_amount,
+        MAX(donated_at) AS last_donation_date,
+        state,
+        zip
+      FROM donations
+      WHERE donated_at >= date('now', '-6 months')
+      GROUP BY donor_name, state, zip
+      ORDER BY total_amount DESC;
+    output: active_donors_last_6_months.csv
+    upload_s3: false
+
   - name: list_tables
     action: list_tables
 

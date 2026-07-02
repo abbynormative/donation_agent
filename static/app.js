@@ -218,10 +218,10 @@ function tableHtml(records) {
     if (typeof v === "number" && isCurrency(col)) return currencyFmt.format(v);
     if (typeof v === "number" && isQuantity(col))
       return Number.isInteger(v) ? v.toLocaleString() : v.toLocaleString(undefined, { maximumFractionDigits: 2 });
-    return String(v);
+    return escapeHtml(String(v));
   };
 
-  const head = cols.map((c) => `<th${cls(c)}>${c}</th>`).join("");
+  const head = cols.map((c) => `<th${cls(c)}>${escapeHtml(c)}</th>`).join("");
   const body = records.map(
     (r) => `<tr>${cols.map((c) => `<td${cls(c)}>${fmt(r[c], c)}</td>`).join("")}</tr>`
   ).join("");
@@ -250,7 +250,7 @@ function renderFactors(rows) {
   const max = Math.max(...rows.map((r) => r.importance_pct), 1);
   clusterFactorsEl.innerHTML = rows.map((r) => `
     <div class="factor-row">
-      <div class="factor-label">${r.feature.replace(/_/g, " ")}</div>
+      <div class="factor-label">${escapeHtml(r.feature.replace(/_/g, " "))}</div>
       <div class="factor-bar"><div class="factor-fill" style="width:${(r.importance_pct / max) * 100}%"></div></div>
       <div class="factor-pct">${r.importance_pct}%</div>
     </div>`).join("");
@@ -267,7 +267,7 @@ function renderSegmentsTable(segments, nClusters) {
   const body = segments.map((s) => {
     const url = `/cluster-analysis/download?segment=${encodeURIComponent(s.segment)}&n_clusters=${encodeURIComponent(nClusters)}`;
     return "<tr>" +
-      `<td>${s.segment}</td>` +
+      `<td>${escapeHtml(s.segment)}</td>` +
       `<td class="num">${s.donor_count.toLocaleString()}</td>` +
       `<td class="num">${pctFmt(s.pct_of_donors)}</td>` +
       `<td class="num">${s.avg_recency_days}</td>` +

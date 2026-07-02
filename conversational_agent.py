@@ -1,10 +1,11 @@
 import json
+import logging
 import os
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -12,10 +13,13 @@ from sqlalchemy import create_engine, inspect, text
 import pandas as pd
 from dotenv import load_dotenv
 
+logger = logging.getLogger(__name__)
+
 load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///donations.db")
 OUTDIR = os.getenv("OUTDIR", "outputs")
+TASK_FILE = os.getenv("TASK_FILE", "agent_tasks.yaml")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
@@ -24,6 +28,16 @@ S3_PREFIX = os.getenv("S3_PREFIX", "")
 
 engine = create_engine(DATABASE_URL, future=True)
 app = FastAPI(title="Donation DB Conversational Agent")
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return response
+
 
 STATIC_DIR = Path(__file__).parent / "static"
 if STATIC_DIR.is_dir():
@@ -133,7 +147,6 @@ class QueryResponse(BaseModel):
 
 class TaskRequest(BaseModel):
     task_name: str
-    task_file: Optional[str] = "agent_tasks.yaml"
 
 
 def inspect_schema() -> str:
@@ -292,8 +305,12 @@ def query_endpoint(payload: QueryRequest):
             explanation=explanation,
             s3_url=s3_url,
         )
-    except Exception as exc:
+    except (ValueError, RuntimeError) as exc:
+        # Expected errors (SQL validation failures, LLM config issues) — safe to surface
         raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.exception("Unexpected error in /query")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred. Please try again.")
 
 
 @app.post("/run-task")
@@ -304,7 +321,7 @@ def run_task_endpoint(payload: TaskRequest):
         raise HTTPException(status_code=400, detail=f"Unable to import task runner: {exc}")
 
     try:
-        results = run_tasks_file(payload.task_file, payload.task_name)
+        results = run_tasks_file(TASK_FILE, payload.task_name)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -396,12 +413,11 @@ def list_task_names():
     except ImportError as exc:
         raise HTTPException(status_code=400, detail="Missing pyyaml package") from exc
 
-    task_file = os.getenv("TASK_FILE", "agent_tasks.yaml")
-    if not os.path.exists(task_file):
-        raise HTTPException(status_code=404, detail=f"Task file not found: {task_file}")
+    if not os.path.exists(TASK_FILE):
+        raise HTTPException(status_code=404, detail="Task file not found.")
 
     try:
-        data = yaml.safe_load(Path(task_file).read_text())
+        data = yaml.safe_load(Path(TASK_FILE).read_text())
         tasks = data.get("tasks", []) if isinstance(data, dict) else []
         return {"tasks": [task.get("name") for task in tasks if "name" in task]}
     except Exception as exc:
