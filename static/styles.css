@@ -50,19 +50,6 @@ header::after {
   padding: 26px 32px 24px;
 }
 
-.header-brand {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 5px;
-}
-
-.header-icon {
-  width: 34px;
-  height: 34px;
-  flex-shrink: 0;
-}
-
 header h1 {
   margin: 0;
   font-size: 21px;
@@ -72,10 +59,9 @@ header h1 {
 }
 
 .subtitle {
-  margin: 0;
+  margin: 4px 0 0;
   color: rgba(255, 255, 255, 0.55);
   font-size: 14px;
-  padding-left: 46px;
 }
 
 /* ── Layout ───────────────────────────────────────────────── */
@@ -432,7 +418,6 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 
 @media (max-width: 640px) {
   .header-inner { padding: 18px 16px 16px; }
-  .subtitle { padding-left: 0; margin-top: 4px; }
 
   main { padding: 14px 10px 36px; gap: 14px; }
   section { padding: 16px 14px; border-radius: 11px; }
