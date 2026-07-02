@@ -49,8 +49,14 @@ function detectChartIntent(q) {
 }
 
 const CHART_PALETTE = [
-  "54, 162, 235", "255, 99, 132", "75, 192, 192", "255, 159, 64",
-  "153, 102, 255", "255, 205, 86", "201, 203, 207", "100, 181, 246",
+  "30, 138, 101",   // teal-green (primary)
+  "52, 152, 200",   // sky blue
+  "225, 120, 45",   // warm orange
+  "145, 90, 180",   // soft purple
+  "210, 65, 95",    // rose
+  "55, 175, 100",   // leaf green
+  "195, 155, 35",   // golden amber
+  "80, 110, 200",   // slate blue
 ];
 const paletteColor = (i, alpha) => `rgba(${CHART_PALETTE[i % CHART_PALETTE.length]}, ${alpha})`;
 
